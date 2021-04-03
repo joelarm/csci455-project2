@@ -6,6 +6,7 @@
 static int inited = 0;
 
 /**
+ * Joel Armstrong
  * Initializes the kfc library.  Programs are required to call this function
  * before they may use anything else in the library's public interface.
  *
