@@ -1,9 +1,18 @@
 #include <assert.h>
 #include <sys/types.h>
+#include <stdlib.h>
 
+#include "queue.h"
 #include "kfc.h"
 
 static int inited = 0;
+int numThreads;
+static int currentThread;
+static KFCBlock threadList[KFC_MAX_THREADS];
+static queue_t threadQueue;
+static ucontext_t mainContext;
+
+
 
 /**
  * Joel Armstrong
@@ -21,10 +30,43 @@ kfc_init(int kthreads, int quantum_us)
 {
 	assert(!inited);
 
+
+	for (int i = 0; i < KFC_MAX_THREADS; ++ i )
+	{
+		threadList[i].active = 0;
+	}
+
+	queue_init(&threadQueue);
+	currentThread = 0;
+	numThreads = 1;
+
+	getcontext(&mainContext);
+	mainContext.uc_link = 0;
+	mainContext.uc_stack.ss_sp = malloc(KFC_DEF_STACK_SIZE);
+	mainContext.uc_stack.ss_size = KFC_DEF_STACK_SIZE;
+	mainContext.uc_stack.ss_flags = 0;
+
+	makecontext(&mainContext, (void (*)(void)) kfc_scheduler, 0);
+
+
 	inited = 1;
 	return 0;
 }
 
+
+int kfc_scheduler(void) {
+
+	while(queue_size(&threadQueue) > 0){
+		tid_t *next =  queue_dequeue(&threadQueue);
+		DPRINTF("NEXT WOULD BE %d\n", *next);
+		currentThread = *next;
+		setcontext(&threadList[*next].context);
+	}
+
+
+
+	return 0;
+}
 /**
  * Cleans up any resources which were allocated by kfc_init.  You may assume
  * that this function is called only from the main thread, that any other
@@ -66,6 +108,51 @@ kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 		caddr_t stack_base, size_t stack_size)
 {
 	assert(inited);
+	if (numThreads ==  KFC_MAX_THREADS) return 1;
+
+	/* The "main" execution context */
+
+	*ptid = numThreads;
+	numThreads++;
+
+	getcontext(&threadList[*ptid].context);
+	if(stack_size == 0){
+		stack_size = KFC_DEF_STACK_SIZE;
+	}
+	if(stack_base == NULL){
+		stack_base = malloc(stack_size);
+	}
+
+
+
+	/* Set the context to a newly allocated stack */
+	threadList[*ptid].stack = stack_base;
+	threadList[*ptid].tid = ptid;
+	threadList[*ptid].context.uc_link = &mainContext;
+	threadList[*ptid].context.uc_stack.ss_sp = threadList[*ptid].stack;
+	threadList[*ptid].context.uc_stack.ss_size = stack_size;
+	threadList[*ptid].context.uc_stack.ss_flags = 0;
+
+
+	if ( threadList[*ptid].stack == 0 )
+	{
+		DPRINTF( "Error: Could not allocate stack." );
+		return 1;
+	}
+
+	/* Create the context. */
+	makecontext(&threadList[*ptid].context, (void (*)(void)) start_func, 1, arg);
+
+
+
+
+	tid_t temp = currentThread;
+	currentThread = *ptid;
+	queue_enqueue(&threadQueue, &temp);
+	DPRINTF("Swapping from %d to %d\n", temp, currentThread);
+	setcontext(&threadList[*ptid].context);
+	DPRINTF("swapping back to %d\n", temp);
+	currentThread = temp;
 
 	return 0;
 }
@@ -112,8 +199,8 @@ tid_t
 kfc_self(void)
 {
 	assert(inited);
-
-	return 0;
+	DPRINTF("Self is %d \n", currentThread);
+	return currentThread;
 }
 
 /**
@@ -126,6 +213,10 @@ void
 kfc_yield(void)
 {
 	assert(inited);
+	queue_enqueue(&threadQueue, &threadList[currentThread].tid);
+	DPRINTF("%d yielding to scheduler\n", currentThread);
+	setcontext(&mainContext);
+
 }
 
 /**

@@ -3,6 +3,8 @@
 
 #include <stdio.h>
 #include <sys/types.h>
+#include <ucontext.h>
+#include <stdlib.h>
 
 #define DPRINTF(...) do { fprintf(stderr, __VA_ARGS__); } while (0)
 
@@ -17,6 +19,16 @@
 // 0 and KFC_MAX_THREADS - 1 (hint: array index)
 typedef unsigned int tid_t;
 
+/* KFC Control Block
+*  Contains the information about individual KFC Threads.
+*/
+typedef struct {
+	ucontext_t context; /* Stores the current context */
+	int active; /* A boolean flag, 0 if it is not active, 1 if it is */
+	void* stack; /* stack pointer.*/
+	tid_t * tid; /* tid */
+} KFCBlock;
+
 typedef struct {
 	// Put fields for semaphore here
 } kfc_sem_t;
@@ -26,7 +38,7 @@ typedef struct {
  **************************/
 int kfc_init(int kthreads, int quantum_us);
 void kfc_teardown(void);
-
+int kfc_scheduler(void);
 int kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 		caddr_t stack_base, size_t stack_size);
 void kfc_exit(void *ret);
