@@ -10,9 +10,6 @@ int numThreads;
 static int currentThread;
 static KFCBlock threadList[KFC_MAX_THREADS];
 static queue_t threadQueue;
-static ucontext_t mainContext;
-
-
 
 /**
  * Joel Armstrong
@@ -39,43 +36,30 @@ kfc_init(int kthreads, int quantum_us)
 
 	queue_init(&threadQueue);
 	currentThread = 0;
-	numThreads = 0;
+	numThreads = 1;
+	threadList[0].active =1;
 
-	getcontext(&mainContext);
-	getcontext(&threadList[0].context);
-	mainContext.uc_link = 0;
-	mainContext.uc_stack.ss_sp = malloc(KFC_DEF_STACK_SIZE);
-	mainContext.uc_stack.ss_size = KFC_DEF_STACK_SIZE;
-	mainContext.uc_stack.ss_flags = 0;
-
-	makecontext(&mainContext, (void (*)(void)) kfc_scheduler, 0);
-
-
-	inited = 1;
-	return 0;
-	/*
 	getcontext(&threadList[0].context);
 	threadList[0].context.uc_link = 0;
 	threadList[0].context.uc_stack.ss_sp = malloc(KFC_DEF_STACK_SIZE);
 	threadList[0].context.uc_stack.ss_size = KFC_DEF_STACK_SIZE;
 	threadList[0].context.uc_stack.ss_flags = 0;
 	makecontext(&threadList[0].context, (void (*)(void)) kfc_scheduler, 0);
-	*/
+
+	inited = 1;
+	return 0;
 
 }
 
 
 int kfc_scheduler(void) {
-
+	currentThread = 0;
 	while(queue_size(&threadQueue) > 0){
-		tid_t *next =  queue_dequeue(&threadQueue);
-		DPRINTF("NEXT WOULD BE %d\n", *next);
-		currentThread = *next;
-		setcontext(&threadList[*next].context);
+		KFCBlock *next =  queue_dequeue(&threadQueue);
+		DPRINTF("scheduling %d, queue size: %d\n", next->tid, queue_size(&threadQueue));
+		currentThread = (int) next->tid;
+		setcontext(&threadList[currentThread].context);
 	}
-
-
-
 	return 0;
 }
 /**
@@ -120,7 +104,6 @@ kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 {
 	assert(inited);
 	if (numThreads ==  KFC_MAX_THREADS) return 1;
-
 	/* The "main" execution context */
 	/* find a valid inactive tid */
 	for(int i = 0; i < KFC_MAX_THREADS; i++){
@@ -140,16 +123,13 @@ kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 		stack_base = malloc(stack_size);
 	}
 
-
-
 	/* Set the context to a newly allocated stack */
 	threadList[*ptid].stack = stack_base;
-	threadList[*ptid].tid = ptid;
-	threadList[*ptid].context.uc_link = &mainContext;
+	threadList[*ptid].tid = *ptid;
+	threadList[*ptid].context.uc_link = &threadList[0].context;
 	threadList[*ptid].context.uc_stack.ss_sp = threadList[*ptid].stack;
 	threadList[*ptid].context.uc_stack.ss_size = stack_size;
 	threadList[*ptid].context.uc_stack.ss_flags = 0;
-
 
 	if ( threadList[*ptid].stack == 0 )
 	{
@@ -158,19 +138,9 @@ kfc_create(tid_t *ptid, void *(*start_func)(void *), void *arg,
 	}
 
 	/* Create the context. */
+	DPRINTF("thread %d created\n", *ptid);
 	makecontext(&threadList[*ptid].context, (void (*)(void)) start_func, 1, arg);
-
-
-
-
-	tid_t temp = currentThread;
-	currentThread = *ptid;
-	queue_enqueue(&threadQueue, &temp);
-	DPRINTF("Swapping from %d to %d\n", temp, currentThread);
-	setcontext(&threadList[*ptid].context);
-	DPRINTF("swapping back to %d\n", temp);
-	currentThread = temp;
-
+	queue_enqueue(&threadQueue, &threadList[*ptid]);
 	return 0;
 }
 
@@ -230,9 +200,10 @@ void
 kfc_yield(void)
 {
 	assert(inited);
-	queue_enqueue(&threadQueue, &threadList[currentThread].tid);
+
+	queue_enqueue(&threadQueue, &threadList[currentThread]);
 	DPRINTF("%d yielding to scheduler\n", currentThread);
-	setcontext(&mainContext);
+	kfc_scheduler();
 	return;
 }
 

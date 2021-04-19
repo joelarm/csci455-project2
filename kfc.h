@@ -26,7 +26,7 @@ typedef struct {
 	ucontext_t context; /* Stores the current context */
 	int active; /* A boolean flag, 0 if it is not active, 1 if it is */
 	void* stack; /* stack pointer.*/
-	tid_t * tid; /* tid */
+	tid_t tid; /* tid */
 } KFCBlock;
 
 typedef struct {

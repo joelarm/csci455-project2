@@ -8,6 +8,7 @@
 #include <assert.h>
 
 #include "queue.h"
+#include "kfc.h"
 
 /**
  * Initializes a newly-allocated queue
