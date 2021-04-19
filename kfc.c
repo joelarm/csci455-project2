@@ -53,7 +53,7 @@ kfc_init(int kthreads, int quantum_us)
 
 
 int kfc_scheduler(void) {
-	currentThread = 0;
+	//currentThread = 0;
 	while(queue_size(&threadQueue) > 0){
 		KFCBlock *next =  queue_dequeue(&threadQueue);
 		DPRINTF("scheduling %d, queue size: %d\n", next->tid, queue_size(&threadQueue));
